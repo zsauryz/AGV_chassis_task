@@ -1,0 +1,47 @@
+#ifndef __BSP_CAN
+#define __BSP_CAN
+#include "main.h"
+#include "can.h"
+
+/* 电机反馈ID 定义*/
+#define	CAN_M3508_ID1 0x201
+#define CAN_GM6020_ID1 0x205
+#define CAN_M2006_ID1 0x202
+
+/* 定义3508状态结构体，存储当前3508的反馈值*/
+typedef struct _CAN_3508_TypeDef {
+	int16_t  set_current;	// 写入的电流
+    uint16_t angle;			// 角度
+    uint16_t speed;			// 速度
+    uint16_t current;		// 电流
+    uint8_t temperature;	// 温度
+} CAN_M3508_TypeDef;
+
+
+/* 定义6020状态结构体，存储当前6020的反馈值*/
+typedef struct
+{
+    int16_t  set_voltage;	// 写入的电压
+    uint16_t angle;			// 角度
+    int16_t  speed;         // 速度
+    int16_t  current;       // 电流
+    uint8_t  temperature;   // 温度
+} CAN_GM6020_TypeDef;
+
+typedef struct
+{
+    int16_t  set_current;	// 写入的电流
+    uint16_t angle;			// 角度
+    int16_t  speed;         // 速度
+    int16_t  current;       // 电流
+    uint8_t  temperature;   // 温度
+}CAN_M2006_TypeDef;
+
+void CAN_GM6020_SetVoltage(int16_t v1);
+void CAN_FilterInit(CAN_HandleTypeDef* hcan);
+uint8_t CAN_SendMsg(CAN_HandleTypeDef* hcan,uint8_t ide,uint32_t id,uint8_t len,uint8_t *data);
+
+void CAN_M3508_M2006_SetCurrent();
+
+#endif
+

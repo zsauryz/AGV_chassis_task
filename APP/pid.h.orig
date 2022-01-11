@@ -1,0 +1,68 @@
+#ifndef _PID_H
+#define _PID_H
+#include "main.h"
+
+#define ABS(x)		((x>0)? x: -x)
+enum {
+    LLAST	= 0,
+    LAST 	= 1,
+    NOW 	= 2,
+
+    POSITION_PID,
+    DELTA_PID,
+};
+typedef struct _PID_Typedef
+{
+    float Kp;
+    float Ki;
+    float Kd;
+
+    float target[3];					//目标值,包含NOW， LAST， LLAST上上次
+    float feedback[3];					//测量值
+    float err[3];							//误差
+
+    float pout;								//p输出
+    float iout;								//i输出
+    float dout;								//d输出
+
+    float pos_out;						//本次位置式输出
+    float last_pos_out;					//上次位置式输出
+	float pos_out0;						//位置式输出最小值
+
+    float delta_u;						//本次增量值
+    float last_delta_out;				//上次增量式输出
+    float delta_out;					//本次增量式输出 = last_delta_out + delta_u
+
+    float max_err;
+    float deadband;						//err < deadband return
+
+    uint32_t pid_mode;
+    int MaxOutput;				//输出限幅
+    uint32_t IntegralLimit;		    //积分限幅
+} PID_TypeDef;
+
+extern PID_TypeDef PID_GM6020[2];	// 定义GM6020 PID结构体
+extern PID_TypeDef PID_M2006;		// 定义M2006 PID结构体
+extern PID_TypeDef PID_M2006_ANGLE;// 定义M2006 角度PID结构体
+extern PID_TypeDef PID_M3508[6];	// 定义M3508 PID结构体
+
+void PID_Init(
+	PID_TypeDef*	pid,
+  uint32_t 			mode,
+  uint32_t 			maxout,
+  uint32_t 			intergral_limit,
+  float 				kp,
+  float 				ki,
+  float 				kd
+);
+void PID_Reset(PID_TypeDef	*pid, float kp, float ki, float kd);
+
+float PID_Calculate(PID_TypeDef *pid, float target, float feedback);
+float PID_Calc2(PID_TypeDef *pid,float target, float feedback);
+void M3508_follow(PID_TypeDef *pid_6020,float target);
+void Gyro_mobile_init(void);
+void Gyro_mobile(float angle,float speed,float target);
+#endif
+
+
+

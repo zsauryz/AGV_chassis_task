@@ -1,0 +1,483 @@
+/**
+ ***************************************(C) COPYRIGHT 2021 DIODE***************************************
+ * @file       rc_control.c
+ * @brief
+ * @note
+ * @Version    V3.0.0
+ * @Date       2021.5
+ ***************************************(C) COPYRIGHT 2021 DIODE***************************************
+ */
+#include "rc_control.h"
+#include "math.h"
+#include "pid.h"
+
+#define RACEFLAG 0
+#define __weak		__attribute__((weak))
+#define pitch_angle_min	258
+#define pitch_angle_max	295.48f//319 
+extern imu_t imu;
+extern int 			setSpeed[4];
+extern VisionData datadata;
+extern float pi;
+extern float total_C_yaw;
+extern uint8_t coolingflag;
+//extern float imu_yaw;
+float Vision_aiming_pitch=0,Vision_aiming_yaw=-5;
+//float fri_speed=5000;
+uint8_t rc_flag=0,shootflag=0,shoot_flag=1,spin_flag=0,spin_flag_2=0,shootflag2=1;	// 遥控器连接标志 shootflag2=1是上电不开摩擦轮
+uint8_t rc_f=0,rc_n=1;     //拨弹判断标志
+float P_angle=0;
+float GM6020_1feedback,GM6020_1feedback1,GM6020_flag=0,Flag=0,Follow_3508=0,Follow_3508_2=0;
+shoot_control_t shoot_control;
+float temp_speed;
+float GM6020_spin=0;
+int vl=1,v2=0;
+float last_pitch_angle_set=0,imuyaw;
+int16_t x,y;
+float pix;
+float spin_6020angle,spin_imu_yaw;
+float temp1;
+float temp2;
+uint16_t FollowInitAngle=7721;
+double imu_last_anglesum;
+double imu_angle_bias;
+double imu_agbias_sum;
+float incpl = 0,incpl_last = 0;
+uint8_t QuickReveseFlag=0;
+uint16_t QuickReveseTarget=180;
+uint16_t QuickReveseCounter=0;
+uint8_t Switch_Pid_Flag=0;
+float lowpassy;
+float lowpassy_last = 0;
+float lowpassp;
+float lowpassp_last = 0;
+int shootcount=0;
+
+void RC_PC(float classis_speed,float spin_speed,float dial_speed,float shoot_speed)
+{	
+	spin_6020angle=CAN_GM6020[0].angle;
+	angle_sum();
+	imu_angle_bias = imu.angle_sum-imu_last_anglesum;
+	if(imu_angle_bias <= 0.1 && imu_angle_bias>=-0.1) imu_agbias_sum+=imu_angle_bias;
+	if(rc.mouse_press_r==0)
+	{
+		pitch_angle_set -= map(rc.mouse_y,-660,660,-5,5);
+		if(pitch_angle_set>=pitch_angle_max) pitch_angle_set= pitch_angle_max;
+		else if(pitch_angle_set<=pitch_angle_min) pitch_angle_set= pitch_angle_min;
+		spin_angle_set += map(rc.mouse_x,-660,660,-5,5);
+		lowpassy = 0.5f*PID_Calculate(&PID_GM6020[0],spin_angle_set,(float)imu.yawtx)+0.5f*lowpassy_last+5;
+		lowpassy_last = lowpassy;
+		CAN_GM6020[0].set_voltage = lowpassy;
+		CAN_GM6020[1].set_voltage = PID_Calculate(&PID_GM6020[1],pitch_angle_set,(float)CAN_GM6020[1].angle/8191*360);
+
+	}
+	/*
+	else //自瞄
+	{
+	if(datadata.dis != 0 )
+		{			
+			lowpassy = 0.5*PID_Calculate(&PID_GM6020[2],0,-datadata.yaw_angle)+0.5*lowpassy_last;
+			lowpassy_last = lowpassy;
+			
+			lowpassp = 0.8*PID_Calculate(&PID_GM6020[3],0,datadata.pitch_angle)+0.2*lowpassp_last;
+			lowpassp_last = lowpassp;
+			
+			CAN_GM6020[0].set_voltage = lowpassy;
+			CAN_GM6020[1].set_voltage = lowpassp;
+		}
+		else 
+		{
+			spin_angle_set = imu.angle_sum+imu_agbias_sum;
+			pitch_angle_set = (float)CAN_GM6020[1].angle/8191*360;
+		}
+	}
+  */
+
+	/*************************底盘运动*******************************/
+	int16_t x=-(rc.key[0]==0?0:-classis_speed)-(rc.key[1]==0?0:+classis_speed);
+	int16_t y=(rc.key[2]==0?0:+classis_speed)+(rc.key[3]==0?0:-classis_speed);
+	float pix=0;
+	if(x>0&&y<0)pix=pi/4;
+	else if(x==0&&y<0)pix=pi/2;
+	else if(x<0&&y<0)pix=pi*3/4;
+	else if(x<0&&y==0)pix=pi;
+	else if(x<0&&y>0)pix=pi*5/4;
+	else if(x==0&&y>0)pix=pi*3/2;
+	else if(x>0&&y>0)pix=pi*7/4;
+	M3508_follow_2(&PID_M3508_Follow[0],FollowInitAngle,map(rc.mouse_x,-660,660,-10,10)-pix,x==0&&y==0?0:classis_speed*4/3,spin_speed);
+
+	
+	/*************************按f键一键反转*******************************/
+//	if(rc.key[9]&&QuickReveseFlag) 
+//	{
+//		QuickReveseFlag=0;
+//		spin_angle_set+=180;
+//	}
+// else if(!rc.key[9])
+// {
+//	 QuickReveseFlag=1;
+// }
+	/*************************按f键一键反转*******************************/
+ 
+//拨盘控制
+
+
+	if(rc.key[6]==1){shootflag2=1;}//按q关闭摩擦轮
+	if(rc.key[7]==1){shootflag2=0;}//按e打开摩擦轮
+	
+	
+//	if( shoot_control.block_time > BLOCK_TIME)
+//    {
+//        P_angle-=1;
+//    }
+
+//    if(abs(CAN_M3508[6].speed) < BLOCK_TRIGGER_SPEED && shoot_control.block_time < BLOCK_TIME&&(rc_flag!=0&&rc.mouse_press_l==1))
+//    {
+//        shoot_control.block_time++;
+//        shoot_control.reverse_time = 0;
+//    }
+//    else if(shoot_control.block_time == BLOCK_TIME && shoot_control.reverse_time < REVERSE_TIME)
+//    {
+//        shoot_control.reverse_time++;
+//    }
+//		else if(rc_flag==0||rc.mouse_press_l==0)
+//		{
+//				shoot_control.block_time = 0;
+//		}
+//    else
+//    {
+//        shoot_control.block_time = 0;
+//    }
+//		if(v2==300)
+//		{
+//			if(last_pitch_angle_set>pitch_angle_set)
+//			{
+//				P_angle+=(last_pitch_angle_set-pitch_angle_set)/50*160;
+//			}
+//			else
+//			{
+//				P_angle+=(last_pitch_angle_set-pitch_angle_set)/50*160;
+//			}
+//		}
+	
+	
+	
+# if RACEFLAG
+		CAN_M3508[4].set_current =  PID_Calculate(&PID_M3508[4], shoot_speed, CAN_M3508[4].speed);
+		CAN_M3508[5].set_current =  PID_Calculate(&PID_M3508[5], -shoot_speed, CAN_M3508[5].speed);
+# else
+	if(shootflag2)
+	{
+		CAN_M3508[4].set_current =  PID_Calculate(&PID_M3508[4], 0, CAN_M3508[4].speed);
+		CAN_M3508[5].set_current =  PID_Calculate(&PID_M3508[5], 0, CAN_M3508[5].speed);
+	}
+	
+	else
+	{
+		CAN_M3508[4].set_current =  PID_Calculate(&PID_M3508[4], shoot_speed, CAN_M3508[4].speed);
+		CAN_M3508[5].set_current =  PID_Calculate(&PID_M3508[5], -shoot_speed, CAN_M3508[5].speed);
+	}
+#endif
+	
+	
+	if( shoot_control.block_time < BLOCK_TIME)dial_speed = dial_speed;
+  else dial_speed = -dial_speed;
+	if(abs(CAN_M3508[6].speed) < BLOCK_TRIGGER_SPEED && shoot_control.block_time < BLOCK_TIME&&(rc_flag!=0&&rc.mouse_press_l==1)){
+			shoot_control.block_time++;
+			shoot_control.reverse_time = 0;
+	}
+	else if(shoot_control.block_time == BLOCK_TIME && shoot_control.reverse_time < REVERSE_TIME){
+			shoot_control.reverse_time++;
+	}
+	else if(rc_flag==0||rc.mouse_press_l==0) shoot_control.block_time = 0;
+	else shoot_control.block_time = 0;
+//	if(rc.mouse_press_l==1&&shootflag==0&&coolingflag==1)
+//	{
+//		P_angle+=80;
+//		shootflag=1;
+//		temp1=CAN_M3508[6].total_angle;
+//		
+////		if(fabs(-P_angle-CAN_M3508[6].total_angle/8191*360)>20)
+////		{
+////			P_angle=-CAN_M3508[6].total_angle/8191*360;
+////		}
+////		
+//		if(temp1-temp2<10)
+//		{
+//			CAN_M3508[6].total_angle=temp2;
+//		}
+//		temp2=temp1;
+//	}
+//	if(rc.mouse_press_l==0&&shootflag==1){
+//		shootflag=0;
+//		P_angle-=8;
+//	}
+	
+if(rc.mouse_press_l==1&&shootflag==0&&coolingflag==1)
+	{
+		P_angle+=135;
+		shootflag=1;
+		//temp1=CAN_M3508[6].total_angle;
+		
+//		if(fabs(-P_angle-CAN_M3508[6].total_angle/8191*360)>20)
+//		{
+//			P_angle=-CAN_M3508[6].total_angle/8191*360;
+//		}
+//		
+//		if(temp1-temp2<10)
+//		{
+//			CAN_M3508[6].total_angle=temp2;
+//		}
+//		temp2=temp1;
+	}
+	if(rc.mouse_press_l==0){
+		shootflag=0;
+		//P_angle-=5;
+		if(fabs(-P_angle-CAN_M3508[6].total_angle/8191*360)>20)
+		{
+			P_angle=-CAN_M3508[6].total_angle/8191*360;
+//		P_angle-=72;
+		}
+	}  
+	shootcount=(floor)((-CAN_M3508[6].total_angle/8191*360)/72);
+
+	
+	CAN_M3508[6].set_current = PID_Calculate(&PID_M3508_ANGLE[6],-P_angle,CAN_M3508[6].total_angle/8191*360);
+	//for(int i=6;i<=6;i++) CAN_M3508[i].set_current=0;
+	CAN_Gimbal_SendVoltage();
+	CAN_Chassis_SendCurrent();
+
+}
+
+void RC_Chassis(void)
+{
+	pitch_angle_set -= map(rc.ch1,-660,660,-0.8,0.8);
+	if(pitch_angle_set>=pitch_angle_max)pitch_angle_set= pitch_angle_max;
+	else if(pitch_angle_set<=pitch_angle_min)pitch_angle_set= pitch_angle_min;
+    spin_angle_set += map(rc.ch0,-660,660,-1.5,1.5);
+	if(Flag==0)
+	{
+		spin_angle_set=(float)CAN_GM6020[0].angle/8191*360;
+		Flag=1;
+	}
+//    spin_angle_set += map(rc.ch0,-660,660,-1,1);//1
+//	if(GM6020_flag)
+//		GM6020_1feedback=(float)CAN_GM6020[1].angle,GM6020_flag=0;
+//	else
+//		GM6020_1feedback1=(float)CAN_GM6020[1].angle,GM6020_flag=1;
+//	if(abs(GM6020_1feedback1-GM6020_1feedback)>6000)
+//	{
+//		if(spin_angle_set>360)
+//			spin_angle_set = spin_angle_set-360;
+//		else
+//			spin_angle_set = spin_angle_set+360;
+//	}
+//	if(spin_angle_set==0)spin_angle_set=10;
+//	CAN_GM6020[0].set_voltage = PID_Calculate(&PID_GM6020[0],spin_angle_set+100,imu.yaw+100);
+//    CAN_GM6020[1].set_voltage = PID_Calculate(&PID_GM6020[1],spin_angle_set,map((float)CAN_GM6020[1].angle,0,8191,0,360));	
+	CAN_GM6020[0].set_voltage = 0;//PID_Calculate(&PID_GM6020[0],spin_angle_set,(float)CAN_GM6020[0].angle/8191*360);
+	CAN_GM6020[1].set_voltage = PID_Calculate(&PID_GM6020[1],pitch_angle_set,(float)CAN_GM6020[1].angle/8191*360);
+	if(rc.sw2==3||rc.sw2==2){
+		if(GM6020_flag==0){
+			GM6020_flag=1;
+			CAN_GM6020[0].total_angle=fmod(CAN_GM6020[0].total_angle,16382);
+		}
+		if(rc.ch2!=0||rc.ch3!=0) {
+			velocity(rc.ch2,rc.ch3);
+			for(int i=0; i<4; i++) 	//对M3508的操作
+			{
+				setSpeed[i] = map(setSpeed[i]+rc.ch0,-1320,1320,-10000,10000);
+				CAN_M3508[i].set_current =  PID_Calculate(&PID_M3508[i], setSpeed[i], CAN_M3508[i].speed);
+			}
+		}
+//		else
+//			M3508_follow(&PID_M3508_Follow,117.48);
+
+//	if(rc.sw2==2) Pluck_angle(125,1);
+//	if(rc.sw2==3)Pluck_angle(4,1);
+	}
+	else 
+	{
+		GM6020_flag=0;
+//		map(rc.ch2,-660,660,-10000,10000);
+		if(rc.ch2==0)
+			Gyro_mobile(-1.088736,map(rc.ch3,-660,660,-6000,6000),map(rc.ch4,-660,660,-6000,6000));
+		else 
+		{
+			Gyro_mobile(-1.088736-map(rc.ch2,-660,660,-2*3.1415926,2*3.1415926),map(rc.ch3,-660,660,-6000,6000),map(rc.ch4,-660,660,-6000,6000));
+		}
+	}
+	
+	  CAN_Gimbal_SendVoltage();
+		CAN_Chassis_SendCurrent();
+}
+
+/*
+SW1 = 1	: 不发射
+SW1 = 2 ：开启拨盘和摩擦轮
+SW1 = 3 ：只开启摩擦轮
+*/
+void RC_Shoot(float fri_speed,float dial_speed)
+{
+	           CAN_M3508[0].set_current=0;
+            CAN_M3508[1].set_current=0;
+            CAN_M3508[2].set_current=0;
+            CAN_M3508[3].set_current=0;
+    // 根据SW1设置发射机构电机电流
+    switch(rc.sw1)
+    {
+//	if(CAN_M2006[0].speed<dial_speed/10)rc.sw1=1;
+    case 1:
+        CAN_M3508[4].set_current = PID_Calculate(&PID_M3508[4], 0, CAN_M3508[4].speed);
+        CAN_M3508[5].set_current = PID_Calculate(&PID_M3508[5], 0, CAN_M3508[5].speed);
+        CAN_M3508[6].set_current = PID_Calculate(&PID_M3508[6],0,CAN_M3508[6].speed);
+				LASER_Off();
+        break;
+    case 3:
+        CAN_M3508[4].set_current =  PID_Calculate(&PID_M3508[4], -fri_speed, CAN_M3508[4].speed);
+        CAN_M3508[5].set_current =  PID_Calculate(&PID_M3508[5], fri_speed, CAN_M3508[5].speed);
+        CAN_M3508[6].set_current = PID_Calculate(&PID_M3508[6],0, CAN_M3508[6].speed);//0
+				LASER_On();
+        break;
+    case 2:
+        CAN_M3508[4].set_current =  PID_Calculate(&PID_M3508[4], -fri_speed, CAN_M3508[4].speed);
+        CAN_M3508[5].set_current =  PID_Calculate(&PID_M3508[5], fri_speed, CAN_M3508[5].speed);
+        CAN_M3508[6].set_current = PID_Calculate(&PID_M3508[0], dial_speed, CAN_M3508[6].speed);
+				LASER_On();
+        break;
+    }
+    // 发送电流值给电机
+//    CAN_Shoot_SendCurrent();
+}
+void RC_Singleshot(float fri_speed,uint8_t pattern)//pattern为6时为小弹丸，4时为大弹丸
+{
+temp_speed=CAN_M3508[4].speed;
+	switch(rc.sw1)
+    {
+			
+//	if(CAN_M2006[0].speed<dial_speed/10)rc.sw1=1;
+    case 1:
+        CAN_M3508[4].set_current = PID_Calculate(&PID_M3508[4], 0, CAN_M3508[4].speed);
+        CAN_M3508[5].set_current = PID_Calculate(&PID_M3508[5], 0, CAN_M3508[5].speed);
+ //       CAN_M3508[6].set_current = PID_Calculate(&PID_M3508[6],0,CAN_M3508[6].speed);
+				LASER_Off();
+        break;
+    case 3:
+        CAN_M3508[4].set_current =  PID_Calculate(&PID_M3508[4], -fri_speed, CAN_M3508[4].speed);
+        CAN_M3508[5].set_current =  PID_Calculate(&PID_M3508[5], fri_speed, CAN_M3508[5].speed);
+//		CAN_M3508[6].set_current = PID_Calculate(&PID_M3508[6],0,CAN_M3508[6].speed);
+//				LASER_On();
+//        if(rc_f==1){Pluck_angle(360/pattern*rc_n,0);rc_n++;rc_f=0;}
+//		else{Pluck_angle(360/pattern*rc_n,0);}
+        break;
+    case 2:
+        CAN_M3508[4].set_current =  PID_Calculate(&PID_M3508[4], -fri_speed, CAN_M3508[4].speed);
+        CAN_M3508[5].set_current =  PID_Calculate(&PID_M3508[5], fri_speed, CAN_M3508[5].speed);
+//				LASER_On();
+//        if(rc_f==0){Pluck_angle(360/pattern*rc_n,0);rc_n++;rc_f=1;}
+//		else{Pluck_angle(360/pattern*rc_n,0);}
+        break;
+    }
+    // 发送电流值给电机
+//    CAN_Shoot_SendCurrent();
+}
+void RC_Spin(void)
+{
+	pitch_angle_set -= map(rc.ch1,-660,660,-0.2,0.2);
+	if(pitch_angle_set>=pitch_angle_max)pitch_angle_set= pitch_angle_max;
+	else if(pitch_angle_set<=pitch_angle_min)pitch_angle_set= pitch_angle_min;
+    spin_angle_set += map(rc.ch0,-660,660,-1,1);
+	CAN_GM6020[1].set_voltage = PID_Calculate(&PID_GM6020[1],spin_angle_set,imu.yaw);
+//    CAN_GM6020[1].set_voltage = PID_Calculate(&PID_GM6020[1],spin_angle_set,map((float)CAN_GM6020[1].angle,0,8191,0,360));	
+	CAN_GM6020[0].set_voltage = PID_Calculate(&PID_GM6020[0],pitch_angle_set,map((float)CAN_GM6020[0].angle,0,8191,0,360));
+//	Gyro_mobile_init();
+	if(rc.sw1==1)
+	Gyro_mobile(-1.088736,400,2000);
+	else
+	{
+		if(rc.ch1!=0)
+		{
+			pitch_angle_set = -map(rc.ch1,-660,660,-4000,4000);
+			for(int i=0; i<4; i++) 	//对M3508的操作
+			{
+				CAN_M3508[i].set_current =  PID_Calculate(&PID_M3508[i], pitch_angle_set, CAN_M3508[i].speed);
+			}
+		}
+		else if(rc.ch2!=0||rc.ch3!=0) {
+//        velocity(rc.ch2,rc.ch3);
+		velocity(0,-rc.ch3);
+        for(int i=0; i<4; i++) 	//对M3508的操作
+        {
+            setSpeed[i] = map(setSpeed[i],-660,660,-20000,20000);
+            CAN_M3508[i].set_current =  PID_Calculate(&PID_M3508[i], setSpeed[i], CAN_M3508[i].speed);
+        }
+    }
+	else{	
+//		if(rc.sw1==2)M3508_follow(&PID_M3508_Follow,0);
+//		else
+//		{
+//			CAN_M3508[0].set_current = 0;
+//			CAN_M3508[1].set_current = 0;
+//			CAN_M3508[2].set_current = 0;
+//			CAN_M3508[3].set_current = 0;
+//		}
+	}
+}
+	CAN_Gimbal_SendVoltage();
+	CAN_Chassis_SendCurrent();
+//	M3508_follow(&PID_M3508_Follow,60);
+}
+void RC_Vision_aiming()
+{
+	Vision_aiming();
+//	RC_Shoot(fri_speed,dial_speed);
+	if(rc.ch2!=0||rc.ch3!=0) {
+    velocity(rc.ch2,rc.ch3);
+    for(int i=0; i<4; i++) 	//对M3508的操作
+    {
+        setSpeed[i] = map(setSpeed[i],-660,660,-4000,4000);
+        CAN_M3508[i].set_current =  PID_Calculate(&PID_M3508[i], setSpeed[i], CAN_M3508[i].speed);
+       }
+    }
+	else	
+//		M3508_follow(&PID_M3508_Follow,0);
+	{
+	    CAN_M3508[0].set_current = 0;
+	    CAN_M3508[1].set_current = 0;
+	    CAN_M3508[2].set_current = 0;
+	    CAN_M3508[3].set_current = 0;
+
+	}
+	  CAN_Gimbal_SendVoltage();
+		CAN_Chassis_SendCurrent();
+}
+
+void angle_sum(void)
+{
+
+	//计算这次与上次的差值
+	imu.cur_angle=imu.yaw - imu.last_angle;
+	//将这次的角度作为下一次测量的上一次角度
+	imu.last_angle=imu.yaw;
+	//若转过了180°传感器会跳变到-180°，用两个判断消除跳变
+	if(imu.cur_angle>180)  
+	{
+			imu.cur_angle-=360;
+	}
+	if(imu.cur_angle<-180) 
+	{
+			imu.cur_angle+=360;
+	}
+	//进行角度累加，使角度连续
+	imu.angle_sum-=imu.cur_angle;
+	
+}
+
+void angle_init(void)
+{
+	imu.angle_sum = 0;
+	imu.cur_angle = 0;
+	imu.last_angle = 0;
+	//KalmanCreate(&Yaw_kalman,1,0);
+}
+
